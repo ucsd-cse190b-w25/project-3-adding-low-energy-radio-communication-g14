@@ -20,6 +20,9 @@
 /* Includes ------------------------------------------------------------------*/
 //#include "ble_commands.h"
 #include "ble.h"
+#include "leds.h"
+#include "timer.h"
+#include "lsm6dsl.h"
 
 #include <stdlib.h>
 
@@ -31,13 +34,42 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI3_Init(void);
 
+
+#if !defined(__SOFT_FP__) && defined(__ARM_FP)
+  #warning "FPU is not initialized, but the project is compiling for an FPU. Please initialize the FPU before use."
+#endif
+
+volatile uint32_t updated_count = 0;
+volatile uint32_t count = 0;
+
+//volatile uint32_t  = 0;
+
+// Redefine the libc _write() function so you can use printf in your code
+int _write(int file, char *ptr, int len) {
+    int i = 0;
+    for (i = 0; i < len; i++) {
+        ITM_SendChar(*ptr++);
+    }
+    return len;
+}
+
+void TIM2_IRQHandler(){
+    // Check if the update interrupt flag is set
+    if (TIM2->SR & TIM_SR_UIF) {
+        // Clear the update interrupt flag and perform actions
+        TIM2->SR &= ~TIM_SR_UIF;
+        updated_count++;
+    }
+};
+
+
 /**
   * @brief  The application entry point.
   * @retval int
   */
 int main(void)
 {
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+	/* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
   /* Configure the system clock */
@@ -56,20 +88,115 @@ int main(void)
 
   HAL_Delay(10);
 
-  uint8_t nonDiscoverable = 0;
 
-  while (1)
-  {
-	  if(!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port,BLE_INT_Pin)){
-	    catchBLE();
-	  }else{
-		  HAL_Delay(1000);
-		  // Send a string to the NORDIC UART service, remember to not include the newline
-		  unsigned char test_str[] = "youlostit BLE test";
-		  updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
+  leds_init();
+  timer_init(TIM2);
+  timer_set_ms(TIM2, 10000);//50 ms
+  int timer = 0;
+  int i = 0;
+  int j = 1;
+  i2c_init();
+  for (volatile int i = 0; i < 500000; i++);
+  lsm6dsl_init();
+  int16_t x, y, z;
+  int16_t lastX, lastY, lastZ;
+  const int16_t thresh = 30;
+
+  leds_set(0x03);
+  leds_set(0x04);
+  uint8_t nonDiscoverable = 0;
+  while (1){
+	  if(updated_count < 6){	// 50 ms fits 1200 times in 1 minute
+		lsm6dsl_read_xyz(&x, &y, &z);  // Read accelerometer data for X, Y, Z axes
+		// Display the acceleration values (in raw data form)
+		printf("Acceleration X: %d, Y: %d, Z: %d\n", x, y, z);
+
+		if(x < lastX - thresh || x > lastX + thresh){
+			lastX = x;
+			updated_count = 0;
+		}
+		if(y < lastY - thresh || y > lastY + thresh){
+			lastY = y;
+			updated_count = 0;
+		}
+		if(z < lastZ - thresh || z > lastZ + thresh){
+			lastZ = z;
+			updated_count = 0;
+		}
+		printf("count %d\n", updated_count);
 	  }
+	  else{
+		  if(count != updated_count){
+
+			  count = updated_count;
+			  timer++;
+
+			  if(timer == 6){
+				  timer = 0;
+			  }
+
+			  lsm6dsl_read_xyz(&x, &y, &z);  // Read accelerometer data for X, Y, Z axes
+
+			  if(!(x < lastX - thresh || x > lastX + thresh)){
+				  lastX = x;
+//				  leds_set(0x03);
+//				  leds_set(0x04);
+				  if(!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port,BLE_INT_Pin)){
+					  catchBLE();
+				  }else{
+					  HAL_Delay(1000);
+					  // Send a string to the NORDIC UART service, remember to not include the newline
+					  unsigned char test_str[] = "youlostit BLE test";
+					  updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
+				  }
+				  updated_count = 0;
+				  timer = 0;
+			  }
+			  if(!(y < lastY - thresh || y > lastY + thresh)){
+				  lastY = y;
+//				  leds_set(0x03);
+//				  leds_set(0x04);
+				  if(!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port,BLE_INT_Pin)){
+					  catchBLE();
+				  }else{
+					  HAL_Delay(1000);
+					  // Send a string to the NORDIC UART service, remember to not include the newline
+					  unsigned char test_str[] = "youlostit BLE test";
+					  updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
+				  }
+				  updated_count = 0;
+				  timer = 0;
+			  }
+			  if(!(z < lastZ - thresh || z > lastZ + thresh)){
+				  lastZ = z;
+//				  leds_set(0x03);
+//				  leds_set(0x04);
+				  if(!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port,BLE_INT_Pin)){
+					  catchBLE();
+				  }else{
+					  HAL_Delay(1000);
+					  // Send a string to the NORDIC UART service, remember to not include the newline
+					  unsigned char test_str[] = "youlostit BLE test";
+					  updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
+				  }
+				  updated_count = 0;
+				  timer = 0;
+			  }
+		  }
+	  }
+
+
+//	  if(!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port,BLE_INT_Pin)){
+//	    catchBLE();
+//	  }else{
+//		  HAL_Delay(1000);
+//		  // Send a string to the NORDIC UART service, remember to not include the newline
+//		  unsigned char test_str[] = "youlostit BLE test";
+//		  updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
+//	  }
 	  // Wait for interrupt, only uncomment if low power is needed
 	  //__WFI();
+
   }
 }
 
