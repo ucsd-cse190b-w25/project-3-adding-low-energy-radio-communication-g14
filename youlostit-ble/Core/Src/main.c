@@ -24,6 +24,7 @@
 #include "timer.h"
 #include "lsm6dsl.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 
 int dataAvailable = 0;
@@ -40,7 +41,8 @@ static void MX_SPI3_Init(void);
 #endif
 
 volatile uint32_t updated_count = 0;
-volatile uint32_t count = 0;
+volatile uint32_t count_ten = 0;
+volatile uint32_t time = 0;
 
 //volatile uint32_t  = 0;
 
@@ -92,96 +94,94 @@ int main(void)
   leds_init();
   timer_init(TIM2);
   timer_set_ms(TIM2, 10000);//50 ms
-  int timer = 0;
-  int i = 0;
-  int j = 1;
   i2c_init();
   for (volatile int i = 0; i < 500000; i++);
   lsm6dsl_init();
   int16_t x, y, z;
   int16_t lastX, lastY, lastZ;
   const int16_t thresh = 30;
-
+  int is_moved_bc = 0;
   leds_set(0x03);
   leds_set(0x04);
   uint8_t nonDiscoverable = 0;
   while (1){
-	  if(updated_count < 6){	// 50 ms fits 1200 times in 1 minute
+	  if(updated_count < 12){	// less than 1 minute
 		lsm6dsl_read_xyz(&x, &y, &z);  // Read accelerometer data for X, Y, Z axes
 		// Display the acceleration values (in raw data form)
 		printf("Acceleration X: %d, Y: %d, Z: %d\n", x, y, z);
 
-		if(x < lastX - thresh || x > lastX + thresh){
+		if(x < lastX - thresh || x > lastX + thresh){// if has been moved in x dir reset count and update x
 			lastX = x;
 			updated_count = 0;
+			is_moved_bc = 1;
+			time = 0;
 		}
-		if(y < lastY - thresh || y > lastY + thresh){
+		if(y < lastY - thresh || y > lastY + thresh){// if has been moved in y dir reset count and update y
 			lastY = y;
 			updated_count = 0;
+			is_moved_bc = 1;
+			time = 0;
 		}
-		if(z < lastZ - thresh || z > lastZ + thresh){
+		if(z < lastZ - thresh || z > lastZ + thresh){// if has been moved in z dir reset count and update z
 			lastZ = z;
 			updated_count = 0;
+			is_moved_bc = 1;
+			time = 0;
 		}
 		printf("count %d\n", updated_count);
+		is_moved_bc = 0;
+//		count_ten = updated_count;
 	  }
-	  else{
-		  if(count != updated_count){
-
-			  count = updated_count;
-			  timer++;
-
-			  if(timer == 6){
-				  timer = 0;
-			  }
-
-			  lsm6dsl_read_xyz(&x, &y, &z);  // Read accelerometer data for X, Y, Z axes
-
-			  if(!(x < lastX - thresh || x > lastX + thresh)){
-				  lastX = x;
-//				  leds_set(0x03);
-//				  leds_set(0x04);
-				  if(!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port,BLE_INT_Pin)){
-					  catchBLE();
-				  }else{
-					  HAL_Delay(1000);
-					  // Send a string to the NORDIC UART service, remember to not include the newline
-					  unsigned char test_str[] = "youlostit BLE test";
-					  updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
-				  }
-				  updated_count = 0;
-				  timer = 0;
-			  }
-			  if(!(y < lastY - thresh || y > lastY + thresh)){
-				  lastY = y;
-//				  leds_set(0x03);
-//				  leds_set(0x04);
-				  if(!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port,BLE_INT_Pin)){
-					  catchBLE();
-				  }else{
-					  HAL_Delay(1000);
-					  // Send a string to the NORDIC UART service, remember to not include the newline
-					  unsigned char test_str[] = "youlostit BLE test";
-					  updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
-				  }
-				  updated_count = 0;
-				  timer = 0;
-			  }
-			  if(!(z < lastZ - thresh || z > lastZ + thresh)){
-				  lastZ = z;
-//				  leds_set(0x03);
-//				  leds_set(0x04);
-				  if(!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port,BLE_INT_Pin)){
-					  catchBLE();
-				  }else{
-					  HAL_Delay(1000);
-					  // Send a string to the NORDIC UART service, remember to not include the newline
-					  unsigned char test_str[] = "youlostit BLE test";
-					  updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
-				  }
-				  updated_count = 0;
-				  timer = 0;
-			  }
+	  else{//past a minute
+		  if (updated_count == 0XFFFFFFFF){
+			  updated_count = 12;
+		  }
+		  if(!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port,BLE_INT_Pin)){
+			  catchBLE();
+		  }
+		  if(is_moved_bc == 0){
+			  leds_set(0x02);
+			  count_ten = updated_count;
+			  HAL_Delay(1000);
+			  // Send a string to the NORDIC UART service, remember to not include the newline
+			  unsigned char test_str[] = "PrivTag Airtag1 has been missing for 0 seconds";
+			  updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
+			  is_moved_bc = 1;
+		  }
+		  if (count_ten == updated_count - 2){
+			  time += 10;
+			  count_ten = updated_count;
+			  char str[100];
+			  snprintf(str, sizeof(str), "P for %d seconds", time);
+			  leds_set(0x01);
+			  HAL_Delay(1000);
+			  // Send a string to the NORDIC UART service, remember to not include the newline
+			  //unsigned char test_str[] = "PrivTag Airtag1 has been missing for" + str + "seconds";
+			  //unsigned char *test_str = (unsigned char *)str;
+			  //updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
+			  updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, strlen(str), (unsigned char*)str);
+		  }
+		  lsm6dsl_read_xyz(&x, &y, &z);  // Read accelerometer data for X, Y, Z axes
+		  if(x < lastX - thresh || x > lastX + thresh){//check to see if moved in x dir
+			  lastX = x;
+				  leds_set(0x03);
+				  leds_set(0x04);
+			  updated_count = 0;
+			  time = 0;
+		  }
+		  if((y < lastY - thresh || y > lastY + thresh)){ //check to see if moved in y dir
+			  lastY = y;
+				  leds_set(0x03);
+				  leds_set(0x04);
+			  updated_count = 0;
+			  time = 0;
+		  }
+		  if((z < lastZ - thresh || z > lastZ + thresh)){ //check to see if moved in z dir
+			  lastZ = z;
+				  leds_set(0x03);
+				  leds_set(0x04);
+			  updated_count = 0;
+			  time = 0;
 		  }
 	  }
 
