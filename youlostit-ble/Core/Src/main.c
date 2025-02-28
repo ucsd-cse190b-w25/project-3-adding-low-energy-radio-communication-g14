@@ -43,6 +43,7 @@ static void MX_SPI3_Init(void);
 volatile uint32_t updated_count = 0;
 volatile uint32_t count_ten = 0;
 volatile uint32_t time = 0;
+volatile uint32_t discover = 0;
 
 //volatile uint32_t  = 0;
 
@@ -99,13 +100,22 @@ int main(void)
   lsm6dsl_init();
   int16_t x, y, z;
   int16_t lastX, lastY, lastZ;
-  const int16_t thresh = 30;
+  const int16_t thresh = 50;
   int is_moved_bc = 0;
-  leds_set(0x03);
-  leds_set(0x04);
+  //leds_set(0x03);
+  //leds_set(0x04);
   uint8_t nonDiscoverable = 0;
+  setDiscoverability(1);
   while (1){
+	  if(!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port,BLE_INT_Pin)){
+		  catchBLE();
+	  }
 	  if(updated_count < 12){	// less than 1 minute
+		if(discover == 0){
+			disconnectBLE();
+			setDiscoverability(0);
+			discover = 1;
+		}
 		lsm6dsl_read_xyz(&x, &y, &z);  // Read accelerometer data for X, Y, Z axes
 		// Display the acceleration values (in raw data form)
 		printf("Acceleration X: %d, Y: %d, Z: %d\n", x, y, z);
@@ -133,27 +143,33 @@ int main(void)
 //		count_ten = updated_count;
 	  }
 	  else{//past a minute
+		  if(discover == 1){
+			  setDiscoverability(1);
+			  discover = 0;
+		  }
 		  if (updated_count == 0XFFFFFFFF){
-			  updated_count = 12;
+			  updated_count = 14;
 		  }
-		  if(!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port,BLE_INT_Pin)){
-			  catchBLE();
-		  }
+//		  if(!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port,BLE_INT_Pin)){
+//			  catchBLE();
+//		  }
 		  if(is_moved_bc == 0){
-			  leds_set(0x02);
+			  //leds_set(0x02);
 			  count_ten = updated_count;
 			  HAL_Delay(1000);
 			  // Send a string to the NORDIC UART service, remember to not include the newline
-			  unsigned char test_str[] = "PrivTag Airtag1 has been missing for 0 seconds";
+			  unsigned char test_str[] = "Airtag1 lost 0s";
+//			  unsigned char test_str1[] = " for 0 secs";
 			  updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
+			  //updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str1)-1, test_str1);
 			  is_moved_bc = 1;
 		  }
 		  if (count_ten == updated_count - 2){
+			  leds_set(0x01);
 			  time += 10;
 			  count_ten = updated_count;
 			  char str[100];
-			  snprintf(str, sizeof(str), "P for %d seconds", time);
-			  leds_set(0x01);
+			  snprintf(str, sizeof(str), "Airtag1 lost %ds", time);
 			  HAL_Delay(1000);
 			  // Send a string to the NORDIC UART service, remember to not include the newline
 			  //unsigned char test_str[] = "PrivTag Airtag1 has been missing for" + str + "seconds";
@@ -164,22 +180,22 @@ int main(void)
 		  lsm6dsl_read_xyz(&x, &y, &z);  // Read accelerometer data for X, Y, Z axes
 		  if(x < lastX - thresh || x > lastX + thresh){//check to see if moved in x dir
 			  lastX = x;
-				  leds_set(0x03);
-				  leds_set(0x04);
+				  //leds_set(0x03);
+				  //leds_set(0x04);
 			  updated_count = 0;
 			  time = 0;
 		  }
 		  if((y < lastY - thresh || y > lastY + thresh)){ //check to see if moved in y dir
 			  lastY = y;
-				  leds_set(0x03);
-				  leds_set(0x04);
+				  //leds_set(0x03);
+				  //leds_set(0x04);
 			  updated_count = 0;
 			  time = 0;
 		  }
 		  if((z < lastZ - thresh || z > lastZ + thresh)){ //check to see if moved in z dir
 			  lastZ = z;
-				  leds_set(0x03);
-				  leds_set(0x04);
+				  //leds_set(0x03);
+				  //leds_set(0x04);
 			  updated_count = 0;
 			  time = 0;
 		  }
