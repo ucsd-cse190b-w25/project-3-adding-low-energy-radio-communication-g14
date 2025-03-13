@@ -21,9 +21,10 @@
 //#include "ble_commands.h"
 #include "ble.h"
 #include "leds.h"
-#include "timer.h"
+// #include "timer.h"
+#include <stm32l475xx.h>
 #include "lsm6dsl.h"
-
+#include "lptimer.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -44,13 +45,21 @@ volatile uint32_t count_ten = 0;
 volatile uint32_t time = 0;
 volatile uint32_t discover = 0;
 
-void TIM2_IRQHandler(){
-    // Check if the update interrupt flag is set
-    if (TIM2->SR & TIM_SR_UIF) {
-        // Clear the update interrupt flag and perform actions
-        TIM2->SR &= ~TIM_SR_UIF;
-        updated_count++;
-    }
+// void TIM2_IRQHandler(){
+//     // Check if the update interrupt flag is set
+//     if (TIM2->SR & TIM_SR_UIF) {
+//         // Clear the update interrupt flag and perform actions
+//         TIM2->SR &= ~TIM_SR_UIF;
+//         updated_count++;
+//     }
+// };
+void LPTIM1_IRQHandler(void)
+{
+	if (LPTIM1->ISR & LPTIM_ISR_ARRM) {
+		LPTIM1->ICR |= LPTIM_ICR_ARRMCF;
+		updated_count++;
+	}
+
 };
 
 /**
@@ -79,8 +88,10 @@ int main(void)
   HAL_Delay(10);
 
   //leds_init();
-  timer_init(TIM2);
-  timer_set_ms(TIM2, 10000);//10 s
+//   timer_init(TIM2);
+//   timer_set_ms(TIM2, 10000);//10 s
+  lptimer_init(LPTIM1);
+  lptimer_set_ms(LPTIM1, 1250);
   i2c_init();
   for (volatile int i = 0; i < 500000; i++);
   lsm6dsl_init();
@@ -98,11 +109,12 @@ int main(void)
       }
 
       if (updated_count < 12) {    // less than 1 minute
-          if (discover == 0) {
-              disconnectBLE();
-              setDiscoverability(0);
-              discover = 1;
-          }
+//          if (discover == 0) {
+//              disconnectBLE();
+//              setDiscoverability(0);
+//              discover = 1;
+//          }
+    	  setDiscoverability(0);
           lsm6dsl_read_xyz(&x, &y, &z);  // Read accelerometer data for X, Y, Z axes
           // Display the acceleration values (in raw data form)
           //printf("Acceleration X: %d, Y: %d, Z: %d\n", x, y, z);
@@ -129,10 +141,11 @@ int main(void)
           is_moved_bc = 0;
       }
       else { // past one minute
-          if (discover == 1) {
-              setDiscoverability(1);
-              discover = 0;
-          }
+//          if (discover == 1) {
+//              setDiscoverability(1);
+//              discover = 0;
+//          }
+    	  setDiscoverability(1);
           if (updated_count == 0xFFFFFFFF) {
               updated_count = 14;
           }
@@ -158,16 +171,19 @@ int main(void)
               lastX = x;
               updated_count = 0;
               time = 0;
+              disconnectBLE();
           }
           if (y < lastY - thresh || y > lastY + thresh) { // check Y movement
               lastY = y;
               updated_count = 0;
               time = 0;
+              disconnectBLE();
           }
           if (z < lastZ - thresh || z > lastZ + thresh) { // check Z movement
               lastZ = z;
               updated_count = 0;
               time = 0;
+              disconnectBLE();
           }
       }
 
@@ -197,9 +213,11 @@ int main(void)
       SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;  // Clear SLEEPDEEP bit for normal sleep
 
          // Wait for interrupt
-      HAL_SuspendTick();
-      __WFI();
-      HAL_ResumeTick();
+         HAL_SuspendTick();
+         SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
+         HAL_PWREx_EnterSTOP2Mode(PWR_SLEEPENTRY_WFI);
+         SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk;
+         HAL_ResumeTick();
   }
 }
 
