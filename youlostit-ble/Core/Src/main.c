@@ -35,7 +35,6 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI3_Init(void);
 
-
 #if !defined(__SOFT_FP__) && defined(__ARM_FP)
   #warning "FPU is not initialized, but the project is compiling for an FPU. Please initialize the FPU before use."
 #endif
@@ -44,17 +43,6 @@ volatile uint32_t updated_count = 0;
 volatile uint32_t count_ten = 0;
 volatile uint32_t time = 0;
 volatile uint32_t discover = 0;
-
-//volatile uint32_t  = 0;
-
-// Redefine the libc _write() function so you can use printf in your code
-int _write(int file, char *ptr, int len) {
-    int i = 0;
-    for (i = 0; i < len; i++) {
-        ITM_SendChar(*ptr++);
-    }
-    return len;
-}
 
 void TIM2_IRQHandler(){
     // Check if the update interrupt flag is set
@@ -65,14 +53,13 @@ void TIM2_IRQHandler(){
     }
 };
 
-
 /**
   * @brief  The application entry point.
   * @retval int
   */
 int main(void)
 {
-	/* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
   /* Configure the system clock */
@@ -83,136 +70,136 @@ int main(void)
   MX_SPI3_Init();
 
   //RESET BLE MODULE
-  HAL_GPIO_WritePin(BLE_RESET_GPIO_Port,BLE_RESET_Pin,GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(BLE_RESET_GPIO_Port, BLE_RESET_Pin, GPIO_PIN_RESET);
   HAL_Delay(10);
-  HAL_GPIO_WritePin(BLE_RESET_GPIO_Port,BLE_RESET_Pin,GPIO_PIN_SET);
+  HAL_GPIO_WritePin(BLE_RESET_GPIO_Port, BLE_RESET_Pin, GPIO_PIN_SET);
 
   ble_init();
 
   HAL_Delay(10);
 
-
-  leds_init();
+  //leds_init();
   timer_init(TIM2);
-  timer_set_ms(TIM2, 10000);//50 ms
+  timer_set_ms(TIM2, 10000);//10 s
   i2c_init();
   for (volatile int i = 0; i < 500000; i++);
   lsm6dsl_init();
   int16_t x, y, z;
   int16_t lastX, lastY, lastZ;
-  const int16_t thresh = 50;
+  const int16_t thresh = 45;
   int is_moved_bc = 0;
-  //leds_set(0x03);
-  //leds_set(0x04);
   uint8_t nonDiscoverable = 0;
   setDiscoverability(1);
-  while (1){
-	  if(!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port,BLE_INT_Pin)){
-		  catchBLE();
-	  }
-	  if(updated_count < 12){	// less than 1 minute
-		if(discover == 0){
-			disconnectBLE();
-			setDiscoverability(0);
-			discover = 1;
-		}
-		lsm6dsl_read_xyz(&x, &y, &z);  // Read accelerometer data for X, Y, Z axes
-		// Display the acceleration values (in raw data form)
-		printf("Acceleration X: %d, Y: %d, Z: %d\n", x, y, z);
 
-		if(x < lastX - thresh || x > lastX + thresh){// if has been moved in x dir reset count and update x
-			lastX = x;
-			updated_count = 0;
-			is_moved_bc = 1;
-			time = 0;
-		}
-		if(y < lastY - thresh || y > lastY + thresh){// if has been moved in y dir reset count and update y
-			lastY = y;
-			updated_count = 0;
-			is_moved_bc = 1;
-			time = 0;
-		}
-		if(z < lastZ - thresh || z > lastZ + thresh){// if has been moved in z dir reset count and update z
-			lastZ = z;
-			updated_count = 0;
-			is_moved_bc = 1;
-			time = 0;
-		}
-		printf("count %d\n", updated_count);
-		is_moved_bc = 0;
-//		count_ten = updated_count;
-	  }
-	  else{//past a minute
-		  if(discover == 1){
-			  setDiscoverability(1);
-			  discover = 0;
-		  }
-		  if (updated_count == 0XFFFFFFFF){
-			  updated_count = 14;
-		  }
-//		  if(!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port,BLE_INT_Pin)){
-//			  catchBLE();
-//		  }
-		  if(is_moved_bc == 0){
-			  //leds_set(0x02);
-			  count_ten = updated_count;
-			  HAL_Delay(1000);
-			  // Send a string to the NORDIC UART service, remember to not include the newline
-			  unsigned char test_str[] = "Airtag1 lost 0s";
-//			  unsigned char test_str1[] = " for 0 secs";
-			  updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
-			  //updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str1)-1, test_str1);
-			  is_moved_bc = 1;
-		  }
-		  if (count_ten == updated_count - 2){
-			  leds_set(0x01);
-			  time += 10;
-			  count_ten = updated_count;
-			  char str[100];
-			  snprintf(str, sizeof(str), "Airtag1 lost %ds", time);
-			  HAL_Delay(1000);
-			  // Send a string to the NORDIC UART service, remember to not include the newline
-			  //unsigned char test_str[] = "PrivTag Airtag1 has been missing for" + str + "seconds";
-			  //unsigned char *test_str = (unsigned char *)str;
-			  //updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
-			  updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, strlen(str), (unsigned char*)str);
-		  }
-		  lsm6dsl_read_xyz(&x, &y, &z);  // Read accelerometer data for X, Y, Z axes
-		  if(x < lastX - thresh || x > lastX + thresh){//check to see if moved in x dir
-			  lastX = x;
-				  //leds_set(0x03);
-				  //leds_set(0x04);
-			  updated_count = 0;
-			  time = 0;
-		  }
-		  if((y < lastY - thresh || y > lastY + thresh)){ //check to see if moved in y dir
-			  lastY = y;
-				  //leds_set(0x03);
-				  //leds_set(0x04);
-			  updated_count = 0;
-			  time = 0;
-		  }
-		  if((z < lastZ - thresh || z > lastZ + thresh)){ //check to see if moved in z dir
-			  lastZ = z;
-				  //leds_set(0x03);
-				  //leds_set(0x04);
-			  updated_count = 0;
-			  time = 0;
-		  }
-	  }
+  while (1)
+  {
+      if (!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port, BLE_INT_Pin)) {
+          catchBLE();
+      }
+
+      if (updated_count < 12) {    // less than 1 minute
+          if (discover == 0) {
+              disconnectBLE();
+              setDiscoverability(0);
+              discover = 1;
+          }
+          lsm6dsl_read_xyz(&x, &y, &z);  // Read accelerometer data for X, Y, Z axes
+          // Display the acceleration values (in raw data form)
+          //printf("Acceleration X: %d, Y: %d, Z: %d\n", x, y, z);
+
+          if (x < lastX - thresh || x > lastX + thresh) { // moved in X direction
+              lastX = x;
+              updated_count = 0;
+              is_moved_bc = 1;
+              time = 0;
+          }
+          if (y < lastY - thresh || y > lastY + thresh) { // moved in Y direction
+              lastY = y;
+              updated_count = 0;
+              is_moved_bc = 1;
+              time = 0;
+          }
+          if (z < lastZ - thresh || z > lastZ + thresh) { // moved in Z direction
+              lastZ = z;
+              updated_count = 0;
+              is_moved_bc = 1;
+              time = 0;
+          }
+          //printf("count %d\n", updated_count);
+          is_moved_bc = 0;
+      }
+      else { // past one minute
+          if (discover == 1) {
+              setDiscoverability(1);
+              discover = 0;
+          }
+          if (updated_count == 0xFFFFFFFF) {
+              updated_count = 14;
+          }
+          if (is_moved_bc == 0) {
+              count_ten = updated_count;
+              HAL_Delay(1000);
+              // Send a string to the NORDIC UART service, remember to not include the newline
+              unsigned char test_str[] = "Airtag1 lost 0s";
+              updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
+              is_moved_bc = 1;
+          }
+          if (count_ten == updated_count - 2) {
+              //leds_set(0x01);
+              time += 10;
+              count_ten = updated_count;
+              char str[100];
+              snprintf(str, sizeof(str), "Airtag1 lost %ds", time);
+              HAL_Delay(1000);
+              updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, strlen(str), (unsigned char*)str);
+          }
+          lsm6dsl_read_xyz(&x, &y, &z);  // Read accelerometer data for X, Y, Z axes
+          if (x < lastX - thresh || x > lastX + thresh) { // check X movement
+              lastX = x;
+              updated_count = 0;
+              time = 0;
+          }
+          if (y < lastY - thresh || y > lastY + thresh) { // check Y movement
+              lastY = y;
+              updated_count = 0;
+              time = 0;
+          }
+          if (z < lastZ - thresh || z > lastZ + thresh) { // check Z movement
+              lastZ = z;
+              updated_count = 0;
+              time = 0;
+          }
+      }
+
+      /* --- Power Save Logic: Enter Deep Sleep (Stop Mode) --- */
+      /* If in non-discoverable mode, suspend the BLE radio to save power */
+      if (nonDiscoverable) {
+          standbyBle();
+      }
 
 
-//	  if(!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port,BLE_INT_Pin)){
-//	    catchBLE();
-//	  }else{
-//		  HAL_Delay(1000);
-//		  // Send a string to the NORDIC UART service, remember to not include the newline
-//		  unsigned char test_str[] = "youlostit BLE test";
-//		  updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
-//	  }
-	  // Wait for interrupt, only uncomment if low power is needed
-	  //__WFI();
+      /* Clear the LPMS bits (set them to "000") to select Stop mode.
+         Adjust the register and macro as needed for your specific STM32 family. */
+      //PWR->CR1 &= ~PWR_CR1_LPMS;
 
+      /* Set the SLEEPDEEP bit in the System Control Register to enable deep sleep mode */
+      //SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+
+      /* Execute the Wait-For-Interrupt instruction.
+         The MCU will enter deep sleep (Stop mode) until an interrupt occurs */
+      //__asm volatile ("wfi");
+
+      /* After waking up, clear the SLEEPDEEP bit so that subsequent sleep instructions
+         use a lighter sleep mode if desired */
+      //SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;
+
+
+      SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;  // Clear SLEEPDEEP bit for normal sleep
+
+         // Wait for interrupt
+      HAL_SuspendTick();
+      __WFI();
+      HAL_ResumeTick();
   }
 }
 
@@ -230,7 +217,7 @@ void SystemClock_Config(void)
   */
   if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK)
   {
-    Error_Handler();
+      Error_Handler();
   }
 
   /** Initializes the RCC Oscillators according to the specified parameters
@@ -239,18 +226,18 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI;
   RCC_OscInitStruct.MSIState = RCC_MSI_ON;
   RCC_OscInitStruct.MSICalibrationValue = 0;
-  // This lines changes system clock frequency
+  // This line changes system clock frequency
   RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_7;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
-    Error_Handler();
+      Error_Handler();
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
   */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK
+                              | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_MSI;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
@@ -258,7 +245,7 @@ void SystemClock_Config(void)
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
   {
-    Error_Handler();
+      Error_Handler();
   }
 }
 
@@ -269,7 +256,6 @@ void SystemClock_Config(void)
   */
 static void MX_SPI3_Init(void)
 {
-
   /* USER CODE BEGIN SPI3_Init 0 */
 
   /* USER CODE END SPI3_Init 0 */
@@ -294,12 +280,11 @@ static void MX_SPI3_Init(void)
   hspi3.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
   if (HAL_SPI_Init(&hspi3) != HAL_OK)
   {
-    Error_Handler();
+      Error_Handler();
   }
   /* USER CODE BEGIN SPI3_Init 2 */
 
   /* USER CODE END SPI3_Init 2 */
-
 }
 
 /**
@@ -310,8 +295,8 @@ static void MX_SPI3_Init(void)
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+  /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOE_CLK_ENABLE();
@@ -326,7 +311,6 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(BLE_CS_GPIO_Port, BLE_CS_Pin, GPIO_PIN_SET);
 
-
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(BLE_RESET_GPIO_Port, BLE_RESET_Pin, GPIO_PIN_SET);
 
@@ -337,7 +321,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(BLE_INT_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : GPIO_LED1_Pin BLE_RESET_Pin */
-  GPIO_InitStruct.Pin = GPIO_LED1_Pin|BLE_RESET_Pin;
+  GPIO_InitStruct.Pin = GPIO_LED1_Pin | BLE_RESET_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -354,12 +338,11 @@ static void MX_GPIO_Init(void)
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
-
 /* USER CODE END 4 */
 
 /**

@@ -39,39 +39,38 @@ uint8_t i2c_transaction(uint8_t address, uint8_t dir, uint8_t* data, uint8_t len
 	    // Clear any existing errors
 	    I2C2->ICR = I2C_ICR_NACKCF | I2C_ICR_STOPCF | I2C_ICR_BERRCF;
 
-	    printf("Starting I2C transaction - ISR: 0x%lx, CR2: 0x%lx\n", I2C2->ISR, I2C2->CR2);
+	    //printf("Starting I2C transaction - ISR: 0x%lx, CR2: 0x%lx\n", I2C2->ISR, I2C2->CR2);
 
 	    if (dir == 0) {  // Writing data
 	        // Configure the transfer
 	        I2C2->CR2 = 0; // Clear CR2 first
 	        I2C2->CR2 = (address << 1) | (len << 16) | I2C_CR2_START;
 
-	        printf("Write CR2 configured: 0x%lx\n", I2C2->CR2);
+	        //printf("Write CR2 configured: 0x%lx\n", I2C2->CR2);
 
 	        for (uint8_t i = 0; i < len; i++) {
 	            timeout = I2C_TIMEOUT;
 	            while (!(I2C2->ISR & I2C_ISR_TXIS)) {
 	                if (I2C2->ISR & I2C_ISR_NACKF) {
-	                    printf("Error: NACK received. ISR=0x%lx\n", I2C2->ISR);
+	                    //printf("Error: NACK received. ISR=0x%lx\n", I2C2->ISR);
 	                    I2C2->CR2 |= I2C_CR2_STOP;
 	                    return 6;
 	                }
 
 	                if (--timeout == 0) {
-	                    printf("Error 1: TXIS timeout. ISR=0x%lx, CR2=0x%lx\n",
-	                           I2C2->ISR, I2C2->CR2);
+	                    //printf("Error 1: TXIS timeout. ISR=0x%lx, CR2=0x%lx\n",I2C2->ISR, I2C2->CR2);
 	                    I2C2->CR2 |= I2C_CR2_STOP;
 	                    return 1;
 	                }
 	            }
 	            I2C2->TXDR = data[i];
-	            printf("Wrote byte %d: 0x%02x\n", i, data[i]);
+	            //printf("Wrote byte %d: 0x%02x\n", i, data[i]);
 	        }
 
 	        timeout = I2C_TIMEOUT;
 	        while (!(I2C2->ISR & I2C_ISR_TC)) {
 	            if (--timeout == 0) {
-	                printf("Error 2: TC timeout. ISR=0x%lx\n", I2C2->ISR);
+	                //printf("Error 2: TC timeout. ISR=0x%lx\n", I2C2->ISR);
 	                return 2;
 	            }
 	        }
@@ -86,7 +85,7 @@ uint8_t i2c_transaction(uint8_t address, uint8_t dir, uint8_t* data, uint8_t len
 			timeout = I2C_TIMEOUT;
 			while (!(I2C2->ISR & I2C_ISR_RXNE)) { // Wait until data is received
 				if (--timeout == 0) {
-					printf("error 3");
+					//printf("error 3");
 					return 3; // If we wait too long, return an error
 				}
 			}
@@ -96,7 +95,7 @@ uint8_t i2c_transaction(uint8_t address, uint8_t dir, uint8_t* data, uint8_t len
 		timeout = I2C_TIMEOUT;
 		while (!(I2C2->ISR & I2C_ISR_TC)) { // Wait until the transfer is complete
 			if (--timeout == 0){
-				printf("error 4");
+				//printf("error 4");
 				return 4; // If we wait too long, return an error
 			}
 		}
