@@ -45,141 +45,142 @@ volatile uint32_t count_ten = 0;
 volatile uint32_t time = 0;
 volatile uint32_t discover = 0;
 
-// void TIM2_IRQHandler(){
-//     // Check if the update interrupt flag is set
-//     if (TIM2->SR & TIM_SR_UIF) {
-//         // Clear the update interrupt flag and perform actions
-//         TIM2->SR &= ~TIM_SR_UIF;
-//         updated_count++;
-//     }
-// };
+/**
+ * @brief  LPTIM1 Interrupt Handler
+ * @note   Triggered on LPTIM1 auto-reload match (periodic timer)
+ */
 void LPTIM1_IRQHandler(void)
 {
 	if (LPTIM1->ISR & LPTIM_ISR_ARRM) {
-		LPTIM1->ICR |= LPTIM_ICR_ARRMCF;
-		updated_count++;
+		LPTIM1->ICR |= LPTIM_ICR_ARRMCF; // Clear the interrupt flag
+		updated_count++;	// Increment time counter
 	}
 
 };
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
+ * @brief  Main program entry point
+ * @retval int
+ */
 int main(void)
 {
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  /* MCU Configuration and Initialization */
   HAL_Init();
-
-  /* Configure the system clock */
   SystemClock_Config();
-
-  /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_SPI3_Init();
 
-  //RESET BLE MODULE
+  /* BLE Module Reset Sequence */
   HAL_GPIO_WritePin(BLE_RESET_GPIO_Port, BLE_RESET_Pin, GPIO_PIN_RESET);
   HAL_Delay(10);
   HAL_GPIO_WritePin(BLE_RESET_GPIO_Port, BLE_RESET_Pin, GPIO_PIN_SET);
 
+  /* Initialize Peripherals */
   ble_init();
-
   HAL_Delay(10);
 
-  //leds_init();
-//   timer_init(TIM2);
-//   timer_set_ms(TIM2, 10000);//10 s
+  /* Initialize LPTIM1 as 5 second periodic timer */
   lptimer_init(LPTIM1);
   lptimer_set_ms(LPTIM1, 1250);
-  i2c_init();
-  for (volatile int i = 0; i < 500000; i++);
-  lsm6dsl_init();
-  int16_t x, y, z;
-  int16_t lastX, lastY, lastZ;
-  const int16_t thresh = 45;
-  int is_moved_bc = 0;
-  uint8_t nonDiscoverable = 0;
-  setDiscoverability(1);
 
+  /* Initialize I2C and LSM6DSL accelerometer */
+  i2c_init();
+  for (volatile int i = 0; i < 500000; i++);  // Delay for stabilization
+  lsm6dsl_init();
+
+  /* Accelerometer variables */
+  int16_t x, y, z;                // Current accelerometer readings
+  int16_t lastX, lastY, lastZ;    // Previous accelerometer readings
+  const int16_t thresh = 45;      // Movement detection threshold
+
+  /* State variables */
+  int is_moved_bc = 0;            // Flag for BLE message broadcast
+  uint8_t nonDiscoverable = 0;    // BLE discoverability control
+  setDiscoverability(1);          // Start in discoverable mode
+
+  /* Main loop */
   while (1)
   {
+      /* Check for BLE interrupt if in discoverable mode */
       if (!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port, BLE_INT_Pin)) {
-          catchBLE();
+          catchBLE();  // Handle BLE interrupt
       }
 
-      if (updated_count < 12) {    // less than 1 minute
-//          if (discover == 0) {
-//              disconnectBLE();
-//              setDiscoverability(0);
-//              discover = 1;
-//          }
-    	  setDiscoverability(0);
-          lsm6dsl_read_xyz(&x, &y, &z);  // Read accelerometer data for X, Y, Z axes
-          // Display the acceleration values (in raw data form)
-          //printf("Acceleration X: %d, Y: %d, Z: %d\n", x, y, z);
+      /* Active Mode (< 60 seconds since last movement) */
+      if (updated_count < 12) {    // Less than 60 seconds (12 * 5s)
+          setDiscoverability(0);   // Set to non-discoverable to save power
 
-          if (x < lastX - thresh || x > lastX + thresh) { // moved in X direction
+          /* Read accelerometer data */
+          lsm6dsl_read_xyz(&x, &y, &z);
+
+          /* Check for significant movement in any axis */
+          if (x < lastX - thresh || x > lastX + thresh) {
               lastX = x;
-              updated_count = 0;
-              is_moved_bc = 1;
+              updated_count = 0;  // Reset timer on movement
+              is_moved_bc = 0;
               time = 0;
           }
-          if (y < lastY - thresh || y > lastY + thresh) { // moved in Y direction
+          if (y < lastY - thresh || y > lastY + thresh) {
               lastY = y;
               updated_count = 0;
-              is_moved_bc = 1;
+              is_moved_bc = 0;
               time = 0;
           }
-          if (z < lastZ - thresh || z > lastZ + thresh) { // moved in Z direction
+          if (z < lastZ - thresh || z > lastZ + thresh) {
               lastZ = z;
               updated_count = 0;
-              is_moved_bc = 1;
+              is_moved_bc = 0;
               time = 0;
           }
-          //printf("count %d\n", updated_count);
-          is_moved_bc = 0;
+          is_moved_bc = 0;  // Reset broadcast flag
       }
-      else { // past one minute
-//          if (discover == 1) {
-//              setDiscoverability(1);
-//              discover = 0;
-//          }
-    	  setDiscoverability(1);
+      /* Lost Mode (≥ 60 seconds without movement) */
+      else {
+          setDiscoverability(1);  // Make device discoverable
+
+          /* Handle counter overflow */
           if (updated_count == 0xFFFFFFFF) {
-              updated_count = 14;
+              updated_count = 14;  // Reset to slightly above threshold
           }
+
+          /* Send initial lost notification */
           if (is_moved_bc == 0) {
               count_ten = updated_count;
-              HAL_Delay(1000);
-              // Send a string to the NORDIC UART service, remember to not include the newline
               unsigned char test_str[] = "Airtag1 lost 0s";
+              HAL_Delay(1000);
               updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
-              is_moved_bc = 1;
+              is_moved_bc = 1;  // Set broadcast flag to prevent repeated initial messages
           }
+
+          /* Send periodic updates every 2.5 seconds */
           if (count_ten == updated_count - 2) {
-              //leds_set(0x01);
-              time += 10;
-              count_ten = updated_count;
+              time += 10;  // Increment lost time counter
+              count_ten = updated_count;  // Update reference point
+
+              /* Format and send lost status update */
               char str[100];
               snprintf(str, sizeof(str), "Airtag1 lost %ds", time);
               HAL_Delay(1000);
               updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, strlen(str), (unsigned char*)str);
           }
-          lsm6dsl_read_xyz(&x, &y, &z);  // Read accelerometer data for X, Y, Z axes
-          if (x < lastX - thresh || x > lastX + thresh) { // check X movement
+
+          /* Continue checking for movement to exit lost mode */
+          lsm6dsl_read_xyz(&x, &y, &z);
+
+          /* Check for significant movement in any axis */
+          if (x < lastX - thresh || x > lastX + thresh) {
               lastX = x;
-              updated_count = 0;
+              updated_count = 0;  // Reset counters
               time = 0;
-              disconnectBLE();
+              disconnectBLE();    // Disconnect BLE when found
           }
-          if (y < lastY - thresh || y > lastY + thresh) { // check Y movement
+          if (y < lastY - thresh || y > lastY + thresh) {
               lastY = y;
               updated_count = 0;
               time = 0;
               disconnectBLE();
           }
-          if (z < lastZ - thresh || z > lastZ + thresh) { // check Z movement
+          if (z < lastZ - thresh || z > lastZ + thresh) {
               lastZ = z;
               updated_count = 0;
               time = 0;
@@ -187,37 +188,24 @@ int main(void)
           }
       }
 
-      /* --- Power Save Logic: Enter Deep Sleep (Stop Mode) --- */
-      /* If in non-discoverable mode, suspend the BLE radio to save power */
+      /* Power saving: Suspend BLE if non-discoverable */
       if (nonDiscoverable) {
           standbyBle();
       }
 
+      /* Enter low-power STOP2 mode between operations */
+      SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;  // Configure for normal sleep
 
-      /* Clear the LPMS bits (set them to "000") to select Stop mode.
-         Adjust the register and macro as needed for your specific STM32 family. */
-      //PWR->CR1 &= ~PWR_CR1_LPMS;
+      /* Suspend SysTick to save power */
+      HAL_SuspendTick();
+      SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
 
-      /* Set the SLEEPDEEP bit in the System Control Register to enable deep sleep mode */
-      //SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+      /* Enter STOP2 mode, wake on interrupt */
+      HAL_PWREx_EnterSTOP2Mode(PWR_SLEEPENTRY_WFI);
 
-      /* Execute the Wait-For-Interrupt instruction.
-         The MCU will enter deep sleep (Stop mode) until an interrupt occurs */
-      //__asm volatile ("wfi");
-
-      /* After waking up, clear the SLEEPDEEP bit so that subsequent sleep instructions
-         use a lighter sleep mode if desired */
-      //SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;
-
-
-      SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;  // Clear SLEEPDEEP bit for normal sleep
-
-         // Wait for interrupt
-         HAL_SuspendTick();
-         SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
-         HAL_PWREx_EnterSTOP2Mode(PWR_SLEEPENTRY_WFI);
-         SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk;
-         HAL_ResumeTick();
+      /* Resume SysTick after wakeup */
+      SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk;
+      HAL_ResumeTick();
   }
 }
 
